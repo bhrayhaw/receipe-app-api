@@ -1,4 +1,6 @@
 """Tests for the Ingredients API"""
+from decimal import Decimal
+
 from django.test import TestCase
 from django.contrib.auth import get_user_model
 from django.urls import reverse
@@ -8,9 +10,10 @@ from rest_framework.test import APIClient
 
 from core.models import (Recipe, Ingredients)
 
-from recipe.serializers import IngredientSerializer
+from recipe.serializers import IngredientSerializer, RecipeSerializer
 
 INGREDIENT_URL = reverse('recipe:ingredients-list')
+
 
 def detail_url(ingredient_id):
     return reverse('recipe:ingredients-detail', args=[ingredient_id])
@@ -33,6 +36,7 @@ def create_user(email="user@example.com", password="password123"):
 
 class PublicIngredientAPITest(TestCase):
     """Test case for public users."""
+
     def setUp(self):
         self.client = APIClient()
 
@@ -45,6 +49,7 @@ class PublicIngredientAPITest(TestCase):
 
 class PrivateIngredientAPITest(TestCase):
     """Test case for private users."""
+
     def setUp(self):
         self.client = APIClient()
         self.user = create_user()
@@ -97,3 +102,45 @@ class PrivateIngredientAPITest(TestCase):
         ingredients = Ingredients.objects.filter(user=self.user)
         self.assertFalse(ingredients.exists())
 
+    def test_filtering_ingredients_assigned_to_recipes(self):
+        """Test to list filtered ingredients assigned to recipes"""
+        ing1 = create_ingredient(user=self.user, name='Corn')
+        ing2 = create_ingredient(user=self.user, name='Cassava Dough')
+        recipe1 = Recipe.objects.create(
+            title='Banku',
+            time_in_minutes=40,
+            price=Decimal('10.00'),
+            user=self.user
+        )
+        recipe1.ingredients.add(ing1)
+
+        res = self.client.get(INGREDIENT_URL, {'assigned_only': 1})
+
+        s1 = IngredientSerializer(ing1)
+        s2 = IngredientSerializer(ing2)
+
+        self.assertIn(s1.data, res.data)
+        self.assertNotIn(s2.data, res.data)
+
+    def test_filtered_ingredients_are_unique(self):
+        """Test for checking uniqueness of filtered ingredients"""
+        ing = create_ingredient(user=self.user, name='Kontomire')
+        create_ingredient(user=self.user, name='Garden Eggs')
+        recipe1 = Recipe.objects.create(
+            title='Palava Sauce',
+            time_in_minutes=40,
+            price=Decimal('30.00'),
+            user=self.user,
+        )
+        recipe2 = Recipe.objects.create(
+            title='Garden Egg Stew',
+            time_in_minutes=45,
+            price=Decimal('30.00'),
+            user=self.user,
+        )
+        recipe1.ingredients.add(ing)
+        recipe2.ingredients.add(ing)
+
+        res = self.client.get(INGREDIENT_URL, {'assigned_only': 1})
+
+        self.assertEqual(len(res.data), 1)
